@@ -4,4 +4,4 @@ tags={
 	"graphics"
 }
 picture="stt_hmlpc.png"
-supported_version="1.16"
+supported_version="1.17"
