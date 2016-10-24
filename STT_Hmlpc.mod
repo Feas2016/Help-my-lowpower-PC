@@ -1,7 +1,7 @@
-name="[STT]Help my lowpower PC!"
+﻿name="[STT]Help my lowpower PC!"
 path="mod/STT_HMLPC"
 tags={
 	"graphics"
 }
 picture="stt_hmlpc.png"
-supported_version="1.17.*.*"
+supported_version="1.18.*.*"
