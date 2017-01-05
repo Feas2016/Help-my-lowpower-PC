@@ -21,7 +21,7 @@ VertexShader =
 			AddressU = "Wrap"
 			Index = 0
 			MipFilter = "Linear"
-			MinFilter = "Linear"			
+			MinFilter = "Linear"
 		}
 	}
 }
@@ -98,7 +98,6 @@ PixelShader =
 		#  it will use linear sampling. We have to use OpenGL functions to 
 		#  fetch the exact texel value. ( See calculate_secondary_compressed() )
 
-
 		## Should be after ProvinceSecondaryColorMapPoint, so we sample linearly, when we get OpenGL 3 
 		ProvinceSecondaryColorMap = 
 		{
@@ -119,8 +118,6 @@ PixelShader =
 			MipFilter = "Point"
 			MinFilter = "Point"
 		}
-
-		
 
 		FoWTexture = 
 		{
@@ -184,7 +181,6 @@ PixelShader =
 	}
 }
 
-
 ## Vertex Structs
 
 VertexStruct VS_INPUT_TERRAIN_NOTEXTURE
@@ -192,7 +188,6 @@ VertexStruct VS_INPUT_TERRAIN_NOTEXTURE
     float4 position			: POSITION;
 	float2 height			: TEXCOORD0;
 };
-
 
 VertexStruct VS_OUTPUT_TERRAIN
 {
@@ -204,10 +199,7 @@ VertexStruct VS_OUTPUT_TERRAIN
 	float4 vScreenCoord		: TEXCOORD4;
 };
 
-
 ## Constant Buffers
-
-
 
 ## Shared Code
 
@@ -220,10 +212,14 @@ static const float ATLAS_TEXEL_POW2_EXPONENT= 11.0f;
 static const float TERRAIN_WATER_CLIP_HEIGHT = 3.0f;
 static const float TERRAIN_UNDERWATER_CLIP_HEIGHT = 3.0f;
 
+#ifdef TERRAIN_SHADER
+	#ifdef COLOR_SHADER
+		#define TERRAIN_AND_COLOR_SHADER
+	#endif
+#endif
 
 float mipmapLevel( float2 uv )
 {
-
 #ifdef PDX_OPENGL
 
 	#ifdef NO_SHADER_TEXTURE_LOD
@@ -247,7 +243,6 @@ float mipmapLevel( float2 uv )
     float d = max( dot(dx, dx), dot(dy, dy) );
     return 0.5f * log2( d );
 #endif //PDX_OPENGL
-
 }
 
 float4 sample_terrain( float IndexU, float IndexV, float2 vTileRepeat, float vMipTexels, float lod )
@@ -275,7 +270,7 @@ void calculate_index( float4 IDs, out float4 IndexU, out float4 IndexV, out floa
 	IndexU = trunc( IDs - ( IndexV * NUM_TILES ) + 0.5f );
 }
 
-#ifdef	PIXEL_SHADER
+#ifdef PIXEL_SHADER
 
 float3 calculate_secondary( float2 uv, float3 vColor, float2 vPos )
 {
@@ -286,7 +281,6 @@ float3 calculate_secondary( float2 uv, float3 vColor, float2 vPos )
 
 float3 calculate_secondary_compressed( float2 uv, float3 vColor, float2 vPos )
 {
-
 	float4 vMask = tex2D( OccupationMask, vPos / 8.0 ).rgba;
 
 	// Point sample the color of this province. 
@@ -322,7 +316,6 @@ float3 calculate_secondary_compressed( float2 uv, float3 vColor, float2 vPos )
 
 	int3 BlueParts = int3( vTest );
 
-	
 	float3 vSecondColor = 
 		  float3( RedParts.x, GreenParts.x, BlueParts.x ) * vMask.b
 		+ float3( RedParts.y, GreenParts.y, BlueParts.y ) * vMask.g
@@ -333,9 +326,28 @@ float3 calculate_secondary_compressed( float2 uv, float3 vColor, float2 vPos )
 	return vColor * ( 1.0 - vSecondary.a ) + ( vSecondColor / float(nDivisor) ) * vSecondary.a;
 }
 
+bool GetFoWAndTI( float3 PrePos, out float4 vFoWColor, out float TI, out float4 vTIColor )
+{
+	vFoWColor = GetFoWColor( PrePos, FoWTexture);	
+	TI = GetTI( vFoWColor );	
+	vTIColor = GetTIColor( PrePos, TITexture );
+	return ( TI - 0.99f ) * 1000.0f <= 0.0f;
+}
+
+float3 CalcNormalForLighting( float3 InputNormal, float3 TerrainNormal )
+{
+	TerrainNormal = normalize( TerrainNormal );
+
+	//Calculate normal
+	float3 zaxis = InputNormal;
+	float3 xaxis = cross( zaxis, float3( 0, 0, 1 ) ); //tangent
+	xaxis = normalize( xaxis );
+	float3 yaxis = cross( xaxis, zaxis ); //bitangent
+	yaxis = normalize( yaxis );
+	return xaxis * TerrainNormal.x + zaxis * TerrainNormal.y + yaxis * TerrainNormal.z;
+}
 #endif // PIXEL_SHADER
 ]]
-
 
 ## Vertex Shaders
 
@@ -353,8 +365,8 @@ VertexShader =
 
 			VertexOut.uv = float2( ( mapPos.x + 0.5f ) / MAP_SIZE_X,  ( mapPos.y + 0.5f ) / MAP_SIZE_Y );
 			VertexOut.uv2.x = ( mapPos.x + 0.5f ) / MAP_SIZE_X;
-			VertexOut.uv2.y = ( mapPos.y + 0.5f - MAP_SIZE_Y ) / -MAP_SIZE_Y;	
-			VertexOut.uv2.xy *= float2( MAP_POW2_X, MAP_POW2_Y ); //POW2			
+			VertexOut.uv2.y = ( mapPos.y + 0.5f - MAP_SIZE_Y ) / -MAP_SIZE_Y;
+			VertexOut.uv2.xy *= float2( MAP_POW2_X, MAP_POW2_Y ); //POW2
 
 			float2 heightMapUV = VertexOut.uv;
 			heightMapUV.y = 1.0 - heightMapUV.y;
@@ -367,11 +379,11 @@ VertexShader =
 
 			VertexOut.prepos = float3( mapPos.x, vHeight, mapPos.y );
 			VertexOut.position = mul( ViewProjectionMatrix, float4( VertexOut.prepos, 1.0f ) );
-		#else // USE_VERTEX_TEXTURE
+		#else // !USE_VERTEX_TEXTURE
 			float2 pos = VertexIn.position.xy * QuadOffset_Scale_IsDetail.z + QuadOffset_Scale_IsDetail.xy;
 			float vSatPosZ = saturate( VertexIn.position.z ); // VertexIn.position.z can have a value [0-4], if != 0 then we shall displace vertex
 			float vUseAltHeight = vSatPosZ * vSnap[ int( VertexIn.position.z - 1.0f ) ]; // the snap values are set to either 0 or 1 before each draw call to enable/disable snapping due to LOD
-			pos += vUseAltHeight 
+			pos += vUseAltHeight
 				* float2( 1.0f - VertexIn.position.w, VertexIn.position.w ) // VertexIn.position.w determines offset direction
 				* QuadOffset_Scale_IsDetail.z; // and of course we need to scale it to the same LOD
 
@@ -379,7 +391,10 @@ VertexShader =
 			VertexOut.uv2.x = ( pos.x + 0.5f ) / MAP_SIZE_X;
 			VertexOut.uv2.y = ( pos.y + 0.5f - MAP_SIZE_Y ) / -MAP_SIZE_Y;	
 			VertexOut.uv2.xy *= float2( MAP_POW2_X, MAP_POW2_Y ); //POW2
-			float vHeight = VertexIn.height.x * ( 1.0f - vUseAltHeight ) + VertexIn.height.y * vUseAltHeight;
+
+			float vHeight = VertexIn.height.x * vUseAltHeight - VertexIn.height.x;
+			vHeight = VertexIn.height.y * vUseAltHeight - vHeight;
+
 			vHeight *= 0.01f;
 			VertexOut.prepos = float3( pos.x, vHeight, pos.y );
 			VertexOut.position = mul( ViewProjectionMatrix, float4( VertexOut.prepos, 1.0f ) );
@@ -388,20 +403,19 @@ VertexShader =
 			VertexOut.vShadowProj = mul( ShadowMapTextureMatrix, float4( VertexOut.prepos, 1.0f ) );
 
 			// Output the screen-space texture coordinates
-			VertexOut.vScreenCoord.x = ( VertexOut.position.x * 0.5 + VertexOut.position.w * 0.5 );
-			VertexOut.vScreenCoord.y = ( VertexOut.position.w * 0.5 - VertexOut.position.y * 0.5 );
+			float fHalfW = VertexOut.position.w * 0.5;
+			VertexOut.vScreenCoord.x = ( VertexOut.position.x * 0.5 + fHalfW );
+			VertexOut.vScreenCoord.y = ( fHalfW - VertexOut.position.y * 0.5 );
 		#ifdef PDX_OPENGL
 			VertexOut.vScreenCoord.y = -VertexOut.vScreenCoord.y;
-		#endif	
+		#endif
 			VertexOut.vScreenCoord.z = VertexOut.position.w;
-			VertexOut.vScreenCoord.w = VertexOut.position.w;					
-			
+			VertexOut.vScreenCoord.w = VertexOut.position.w;
+
 			return VertexOut;
 		}
 	]]
-
 }
-
 
 ## Pixel Shaders
 
@@ -411,95 +425,10 @@ PixelShader =
 	[[
 		float4 main( VS_OUTPUT_TERRAIN Input ) : PDX_COLOR
 		{
-			clip( WATER_HEIGHT - Input.prepos.y + TERRAIN_WATER_CLIP_HEIGHT );
-			float3 normal = normalize( tex2D( HeightNormal,Input.uv2 ).rbg - 0.5f );
-			float3 diffuseColor = tex2D( TerrainDiffuse, Input.uv2 * float2(( MAP_SIZE_X / 32.0f ), ( MAP_SIZE_Y / 32.0f ) ) ).rgb;
-			float3 waterColorTint = tex2D( TerrainColorTint, Input.uv2 ).rgb;
-			
-			float vMin = 17.0f;
-			float vMax = 18.5f;
-			float vWaterFog = saturate( 1.0f - ( Input.prepos.y - vMin ) / ( vMax - vMin ) );
-			
-			diffuseColor = lerp( diffuseColor, waterColorTint, vWaterFog );
-			float vFog = saturate( Input.prepos.y * Input.prepos.y * Input.prepos.y * WATER_HEIGHT_RECP_SQUARED * WATER_HEIGHT_RECP  );
-			float3 vOut = CalculateMapLighting( diffuseColor, normal * vFog );
-			
-			return float4( vOut, 1.0f );
-		}
-	]]
-
-	MainCode PixelShaderColor
-	[[
-		float4 main( VS_OUTPUT_TERRAIN Input ) : PDX_COLOR
-		{
-		#ifndef MAP_IGNORE_CLIP_HEIGHT
-			clip( Input.prepos.y + TERRAIN_WATER_CLIP_HEIGHT - WATER_HEIGHT );
-		#endif	
-			float4 vFoWColor = GetFoWColor( Input.prepos, FoWTexture);	
-			float TI = GetTI( vFoWColor );	
-			float4 vTIColor = GetTIColor( Input.prepos, TITexture );
-
-			if( ( TI - 0.99f ) * 1000.0f > 0.0f )
-			{
-				return float4( vTIColor.rgb, 1.0f );
-			}	
-			
-			float2 vOffsets = float2( -0.5f / MAP_SIZE_X, -0.5f / MAP_SIZE_Y );
-			
-			float vAllSame;
-			float4 IndexU;
-			float4 IndexV;
-			calculate_index( tex2D( TerrainIDMap, Input.uv + vOffsets.xy ), IndexU, IndexV, vAllSame );
-			float2 vTileRepeat = Input.uv2 * TERRAIN_TILE_FREQ;
-			vTileRepeat.x *= MAP_SIZE_X/MAP_SIZE_Y;
-			
-			float lod = clamp( trunc( mipmapLevel( vTileRepeat ) - 0.5f ), 0.0f, 6.0f );
-			float vMipTexels = pow( 2.0f, ATLAS_TEXEL_POW2_EXPONENT - lod );
-			float3 normal = normalize( tex2D( HeightNormal, Input.uv2 ).rbg - 0.5f );
-			
-			float4 sampleTerrain = tex2Dlod( TerrainDiffuse, sample_terrain( IndexU.w, IndexV.w, vTileRepeat, vMipTexels, lod ) );
-			float3 terrain_color = tex2D( ProvinceColorMap, Input.uv ).rgb;
-			
-			if ( vAllSame < 1.0f && vBorderLookup_HeightScale_UseMultisample_SeasonLerp.z < 8.0f )
-			{
-				float4 ColorRD = tex2Dlod( TerrainDiffuse, sample_terrain( IndexU.x, IndexV.x, vTileRepeat, vMipTexels, lod ) );
-				float4 ColorLU = tex2Dlod( TerrainDiffuse, sample_terrain( IndexU.y, IndexV.y, vTileRepeat, vMipTexels, lod ) );
-				float4 ColorRU = tex2Dlod( TerrainDiffuse, sample_terrain( IndexU.z, IndexV.z, vTileRepeat, vMipTexels, lod ) );
-				float3 terrain_colorRD = tex2D( ProvinceColorMap, Input.uv + vOffsets.yx ).rgb;
-				float3 terrain_colorLU = tex2D( ProvinceColorMap, Input.uv + vOffsets.xy ).rgb;
-				float3 terrain_colorRU = tex2D( ProvinceColorMap, Input.uv + vOffsets.yy ).rgb;
-				float2 vFrac = frac( float2( Input.uv.x * MAP_SIZE_X - 0.5f, Input.uv.y * MAP_SIZE_Y - 0.5f ) );
-				
-				float vAlphaFactor = 10.0f;
-				float4 vTest = float4( 
-					vFrac.x + vFrac.x * ColorLU.a * vAlphaFactor, 
-					(1.0f - vFrac.x) + (1.0f - vFrac.x) * ColorRU.a * vAlphaFactor, 
-					vFrac.x + vFrac.x * sampleTerrain.a * vAlphaFactor, 
-					(1.0f - vFrac.x) + (1.0f - vFrac.x) * ColorRD.a * vAlphaFactor );
-				float2 yWeights = float2( ( vTest.x + vTest.y ) * vFrac.y, ( vTest.z + vTest.w ) * ( 1.0f - vFrac.y ) );
-				float3 vBlendFactors = float3( vTest.x / ( vTest.x + vTest.y ),
-					vTest.z / ( vTest.z + vTest.w ),
-					yWeights.x / ( yWeights.x + yWeights.y ) );
-				sampleTerrain = lerp( 
-					lerp( ColorRU, ColorLU, vBlendFactors.x ),
-					lerp( ColorRD, sampleTerrain, vBlendFactors.y ), 
-					vBlendFactors.z );
-			}
-			
-			float3 TerrainColor = lerp( tex2D( TerrainColorTint, Input.uv2 ), tex2D( TerrainColorTintSecond, Input.uv2 ), vBorderLookup_HeightScale_UseMultisample_SeasonLerp.w ).rgb;	
-			sampleTerrain.rgb = GetOverlay( sampleTerrain.rgb, TerrainColor, 0.5f );
-			
-			float2 vBlend = float2( 0.1f, 0.65f );
-			float3 vOut = ( dot(sampleTerrain.rgb, GREYIFY) * vBlend.x + terrain_color.rgb * vBlend.y );
-//			vOut = CalculateMapLighting( vOut, normal );
-			vOut = calculate_secondary( Input.uv, vOut, Input.prepos.xz );
-					
-			// Grab the shadow term
-			float fShadowTerm = GetShadowScaled( SHADOW_WEIGHT_MAP, Input.vScreenCoord, ShadowMap );
-			vOut *= fShadowTerm;
-
-			vOut = ApplyDistanceFog( vOut, Input.prepos, GetFoWColor( Input.prepos, FoWTexture), FoWDiffuse );
-			return float4( lerp( ComposeSpecular( vOut, 0.0f ), vTIColor.rgb, TI ), 1.0f );
+			clip( -1 );
+			//float3 normal = float3(0,1,0);
+			//float3 diffuseColor = tex2D( TerrainDiffuse, Input.uv2 * float2(( MAP_SIZE_X / 32.0f ), ( MAP_SIZE_Y / 32.0f ) ) ).rgb;
+			return float4( 0.4, 0.4, 0.5, 1);
 		}
 	]]
 
@@ -510,111 +439,82 @@ PixelShader =
 		#ifndef MAP_IGNORE_CLIP_HEIGHT
 			clip( Input.prepos.y + TERRAIN_WATER_CLIP_HEIGHT - WATER_HEIGHT );
 		#endif	
-			
-			float4 vFoWColor = GetFoWColor( Input.prepos, FoWTexture);			
-			float TI = GetTI( vFoWColor );	
-			float4 vTIColor = GetTIColor( Input.prepos, TITexture );
-			if( ( TI - 0.99f ) * 1000.0f > 0.0f )
+			float fTI;
+			float4 vFoWColor, vTIColor;	
+			if( !GetFoWAndTI( Input.prepos, vFoWColor, fTI, vTIColor ) )
 			{
 				return float4( vTIColor.rgb, 1.0f );
 			}
-			
+
 			float2 vOffsets = float2( -0.5f / MAP_SIZE_X, -0.5f / MAP_SIZE_Y );
 			
 			float vAllSame;
-			float4 IndexU;
-			float4 IndexV;
+			float4 IndexU, IndexV;
 			calculate_index( tex2D( TerrainIDMap, Input.uv + vOffsets.xy ), IndexU, IndexV, vAllSame );
-			
+
 			float2 vTileRepeat = Input.uv2 * TERRAIN_TILE_FREQ;
 			vTileRepeat.x *= MAP_SIZE_X/MAP_SIZE_Y;
 			
 			float lod = clamp( trunc( mipmapLevel( vTileRepeat ) - 0.5f ), 0.0f, 6.0f );
 			float vMipTexels = pow( 2.0f, ATLAS_TEXEL_POW2_EXPONENT - lod );
-			float3 normal = normalize( tex2D( HeightNormal, Input.uv2 ).rbg - 0.5f );
-			float4 sampleTerrain = tex2Dlod( TerrainDiffuse, sample_terrain( IndexU.w, IndexV.w, vTileRepeat, vMipTexels, lod ) );
+			float3 vHeightNormalSample = normalize( tex2D( HeightNormal, Input.uv2 ).rbg - 0.5f );
+			//float3 vHeightNormalSample = float3(0,1,0); нормали всей карты
+			
+			float4 vTerrainSamplePosition = sample_terrain( IndexU.w, IndexV.w, vTileRepeat, vMipTexels, lod );
+			float4 vTerrainDiffuseSample = tex2Dlod( TerrainDiffuse, vTerrainSamplePosition );//диффуз всей карты
 
-		#ifdef NO_SHADER_TEXTURE_LOD
-			float3 terrain_normal = float3( 0,1,0 );
-		#else	
-			float3 terrain_normal = tex2Dlod( TerrainNormal, sample_terrain( IndexU.w, IndexV.w, vTileRepeat, vMipTexels, lod ) ).rbg - 0.5f;
-		#endif //NO_SHADER_TEXTURE_LOD
+	#ifdef TERRAIN_SHADER
+		float3 vTerrainNormalSample = float3( 0, 1, 0 ); //Нормали деталей
+	#endif
+		#ifdef COLOR_SHADER
+			float4 vColorMapSample = tex2D( ProvinceColorMap, Input.uv );
+		#endif
 
-
-			if ( vAllSame < 1.0f && vBorderLookup_HeightScale_UseMultisample_SeasonLerp.z < 8.0f )
+			//float3 TerrainColor = tex2D( TerrainColorTint, Input.uv2 );
+			float3 TerrainColor = lerp( tex2D( TerrainColorTint, Input.uv2 ), tex2D( TerrainColorTintSecond, Input.uv2 ), vBorderLookup_HeightScale_UseMultisample_SeasonLerp.w ).rgb;//зима/лето
+			float3 vOut;
+	#ifdef TERRAIN_SHADER
+		#ifdef TERRAIN_AND_COLOR_SHADER
+			const float fTestThreshold = 0.82f;
+			if( vColorMapSample.a < fTestThreshold )
+		#endif
 			{
-				float4 ColorRD = tex2Dlod( TerrainDiffuse, sample_terrain( IndexU.x, IndexV.x, vTileRepeat, vMipTexels, lod ) );
-				float4 ColorLU = tex2Dlod( TerrainDiffuse, sample_terrain( IndexU.y, IndexV.y, vTileRepeat, vMipTexels, lod ) );
-				float4 ColorRU = tex2Dlod( TerrainDiffuse, sample_terrain( IndexU.z, IndexV.z, vTileRepeat, vMipTexels, lod ) );
-			
-				float2 vFrac = frac( float2( Input.uv.x * MAP_SIZE_X - 0.5f, Input.uv.y * MAP_SIZE_Y - 0.5f ) );
-				sampleTerrain = ColorRD;
+				vHeightNormalSample = CalcNormalForLighting( vHeightNormalSample, vTerrainNormalSample );
 
-				float vAlphaFactor = 10.0f;
-				float4 vTest = float4( 
-					vFrac.x + vFrac.x * ColorLU.a * vAlphaFactor, 
-					(1.0f - vFrac.x) + (1.0f - vFrac.x) * ColorRU.a * vAlphaFactor, 
-					vFrac.x + vFrac.x * sampleTerrain.a * vAlphaFactor, 
-					(1.0f - vFrac.x) + (1.0f - vFrac.x) * ColorRD.a * vAlphaFactor );
-				float2 yWeights = float2( ( vTest.x + vTest.y ) * vFrac.y, ( vTest.z + vTest.w ) * ( 1.0f - vFrac.y ) );
-				float3 vBlendFactors = float3( vTest.x / ( vTest.x + vTest.y ),
-					vTest.z / ( vTest.z + vTest.w ),
-					yWeights.x / ( yWeights.x + yWeights.y ) );
+				vTerrainDiffuseSample = float4(lerp(TerrainColor, vTerrainDiffuseSample.rgb, 0.2f), 1);
+				//vTerrainDiffuseSample.rgb = GetOverlay( vTerrainDiffuseSample.rgb, TerrainColor, 0.75f );
+				vTerrainDiffuseSample.rgb = ApplySnow( vTerrainDiffuseSample.rgb, Input.prepos, vHeightNormalSample, vFoWColor, FoWDiffuse );
+				vTerrainDiffuseSample.rgb = calculate_secondary_compressed( Input.uv, vTerrainDiffuseSample.rgb, Input.prepos.xz );
 
-				sampleTerrain = lerp( 
-					lerp( ColorRU, ColorLU, vBlendFactors.x ),
-					lerp( ColorRD, sampleTerrain, vBlendFactors.y ), 
-					vBlendFactors.z );	
-
-			#ifndef NO_SHADER_TEXTURE_LOD
-				float3 terrain_normalRD = tex2Dlod( TerrainNormal, sample_terrain( IndexU.x, IndexV.x, vTileRepeat, vMipTexels, lod ) ).rbg - 0.5f;
-				float3 terrain_normalLU = tex2Dlod( TerrainNormal, sample_terrain( IndexU.y, IndexV.y, vTileRepeat, vMipTexels, lod ) ).rbg - 0.5f;
-				float3 terrain_normalRU = tex2Dlod( TerrainNormal, sample_terrain( IndexU.z, IndexV.z, vTileRepeat, vMipTexels, lod ) ).rbg - 0.5f;					
-
-				terrain_normal = 
-					( terrain_normalRU * ( 1.0f - vBlendFactors.x ) + terrain_normalLU * vBlendFactors.x ) * ( 1.0f - vBlendFactors.z ) +
-					( terrain_normalRD * ( 1.0f - vBlendFactors.y ) + terrain_normal   * vBlendFactors.y ) * vBlendFactors.z;			
-			#endif
+				vOut = CalculateMapLighting( vTerrainDiffuseSample.rgb, vHeightNormalSample );
 			}
-
-			terrain_normal = normalize( terrain_normal );
-
-			//Calculate normal
-			float3 zaxis = normal; //normal
-			float3 xaxis = cross( zaxis, float3( 0, 0, 1 ) ); //tangent
-			xaxis = normalize( xaxis );
-			float3 yaxis = cross( xaxis, zaxis ); //bitangent
-			yaxis = normalize( yaxis );
-			normal = xaxis * terrain_normal.x + zaxis * terrain_normal.y + yaxis * terrain_normal.z;
-			//return float4( dot(-vLightDir, normal).xxx, 1.0f );
-			
-			float3 TerrainColor = lerp( tex2D( TerrainColorTint, Input.uv2 ), tex2D( TerrainColorTintSecond, Input.uv2 ), vBorderLookup_HeightScale_UseMultisample_SeasonLerp.w ).rgb;
-			
-			sampleTerrain.rgb = GetOverlay( sampleTerrain.rgb, TerrainColor, 0.75f );
-			sampleTerrain.rgb = ApplySnow( sampleTerrain.rgb, Input.prepos, normal, vFoWColor, FoWDiffuse );
-			sampleTerrain.rgb = calculate_secondary_compressed( Input.uv, sampleTerrain.rgb, Input.prepos.xz );	
-			
-			float3 vOut = CalculateMapLighting( sampleTerrain.rgb, normal );
-			
-			// Grab the shadow term
-			float fShadowTerm = GetShadowScaled( SHADOW_WEIGHT_TERRAIN, Input.vScreenCoord, ShadowMap );
-			vOut *= fShadowTerm;
+	#endif	// end TERRAIN_SHADER
+	#ifdef COLOR_SHADER
+		#ifdef TERRAIN_AND_COLOR_SHADER
+			else
+		#endif
+			{
+				vOut = lerp(vColorMapSample.rgb, float3(0.4f,0.4f,0.4f), 0.3f);
+				vOut = lerp(vOut, vTerrainDiffuseSample.rgb, 0.2f);
+				vOut = CalculateMapLighting( vOut, vHeightNormalSample );
+				vOut = calculate_secondary( Input.uv, vOut, Input.prepos.xz );
+			}
+	#endif	// end COLOR_SHADER
 
 			vOut = ApplyDistanceFog( vOut, Input.prepos, vFoWColor, FoWDiffuse );
-			return float4( lerp( ComposeSpecular( vOut, 0.0f ), vTIColor.rgb, TI ), 1.0f );
+			return float4( lerp( ComposeSpecular( vOut, 0.0f ), vTIColor.rgb, fTI ), 1.0f );
 		}
 	]]
 
 	MainCode PixelShaderTerrainUnlit
 	[[
 		float4 main( VS_OUTPUT_TERRAIN Input ) : PDX_COLOR
-		{	
+		{
 			// Grab the shadow term
-			float fShadowTerm = CalculateShadow( Input.vShadowProj, ShadowMap);		
+			float fShadowTerm = CalculateShadow( Input.vShadowProj, ShadowMap );
 			return float4( fShadowTerm, fShadowTerm, fShadowTerm, 1.0f );
 		}
 	]]
-
 }
 
 
@@ -643,12 +543,6 @@ Effect terrain
 {
 	VertexShader = "VertexShader"
 	PixelShader = "PixelShaderTerrain"
-}
-
-Effect terrain_color
-{
-	VertexShader = "VertexShader"
-	PixelShader = "PixelShaderColor"
 }
 
 Effect underwater
