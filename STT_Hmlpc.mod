@@ -1,4 +1,4 @@
-﻿name="[STT]Help my lowpower PC!"
+name="[STT]Help my lowpower PC!"
 path="mod/STT_HMLPC"
 tags={
 	"graphics"
